@@ -8,7 +8,8 @@ namespace testing {
 
 class Calibration {
 public:
-    void calibrate(
+    // Returns the optimal thread count.
+    OptimalConcurrency calibrate(
         const Config& config,
         MultithreadedWorkload *mtWorkload);
 

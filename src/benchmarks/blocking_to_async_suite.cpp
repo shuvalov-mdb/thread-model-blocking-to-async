@@ -7,7 +7,7 @@
 namespace blocking_to_async {
 namespace testing {
 
-void Calibration::calibrate(
+OptimalConcurrency Calibration::calibrate(
     const Config& config,
     MultithreadedWorkload *mtWorkload) {
     mtWorkload->scaleTo(0);
@@ -35,7 +35,22 @@ void Calibration::calibrate(
         if (++iterationsWithoutChange < 10) {
             continue;
         }
-        break;
+
+        if (qpsAfter > previousCycleQPS * 1.001) {
+            std::cerr << "Incrementing thread count to " << (mtWorkload->threadCount() + 1)
+                << " with current QPS " << qpsAfter << std::endl;
+            mtWorkload->scaleTo(mtWorkload->threadCount() + 1);
+            previousCycleQPS = qpsAfter;
+            iterationsWithoutChange = 0;
+            continue;
+        }
+
+        std::cerr << "Done calibrating with thread count " << (mtWorkload->threadCount() - 1)
+            << " and QPS " << previousCycleQPS << " after new cycle QPS stagnated at "
+            << previousCycleQPS << std::endl;
+
+        // Result is the previous iteration.
+        return { mtWorkload->threadCount() - 1, previousCycleQPS };
     }
 }
 

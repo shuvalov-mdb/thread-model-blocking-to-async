@@ -24,8 +24,11 @@ struct Config {
 
     size_t dataSizePerThread = kExpectedL2CacheSize * 2;
     size_t memoryWorkSizePerIteration = kExpectedL1CacheSize;
+};
 
-    std::chrono::milliseconds stableResultsDuringCalibration{ 1000 };
+struct OptimalConcurrency {
+    int threadCount = 0;
+    double qps = 0.0;
 };
 
 struct Stats {
@@ -33,22 +36,14 @@ struct Stats {
     uint64_t iterations = 0;
 
     // Increase iterations for the same interval.
-    void appendConcurrent(const Stats& other) {
-        if (other.duration == std::chrono::microseconds{ 0 }) {
-            return;
-        }
-        if (duration == std::chrono::microseconds{ 0 }) {
-            *this = other;
-            return;  // First time append into empty.
-        }
+    void appendConcurrent(const Stats& other);
 
-        iterations += other.iterations * duration / other.duration;
-    }
+    void appendDecaying(const Stats& other);
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Stats& s) {
     os << "duration: " << s.duration.count() << " us iterations: " << s.iterations;
-    if (s.iterations > 0) { os << " QPS: " << (s.iterations * 1000 * 1000 / s.duration.count()); }
+    if (s.iterations > 0) { os << " QPS: " << (s.iterations * 1000. * 1000 / s.duration.count()); }
     return os;
 }
 

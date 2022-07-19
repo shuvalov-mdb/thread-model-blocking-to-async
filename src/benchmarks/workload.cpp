@@ -11,6 +11,31 @@
 namespace blocking_to_async {
 namespace testing {
 
+// Increase iterations for the same interval.
+void Stats::appendConcurrent(const Stats& other) {
+    if (other.duration == std::chrono::microseconds{ 0 }) {
+        return;
+    }
+    if (duration == std::chrono::microseconds{ 0 }) {
+        *this = other;
+        return;  // First time append into empty.
+    }
+
+    iterations += other.iterations * duration / other.duration;
+}
+
+void Stats::appendDecaying(const Stats& other) {
+    if (duration == std::chrono::microseconds{ 0 }) {
+        *this = other;
+        return;  // First time append into empty.
+    }
+
+    auto currentQps = iterations * 1000.0 * 1000 / duration.count();
+    auto newQps = other.iterations * 1000.0 * 1000 / other.duration.count();
+    duration = other.duration;
+    iterations = ((currentQps + newQps * 2) / 3) * duration.count() / 1000 / 1000;
+}
+
 MultithreadedWorkload::MultithreadedWorkload(
     std::function<std::unique_ptr<Workload>()> createCallback)
     : _createCallback(createCallback) {
@@ -51,7 +76,7 @@ MultithreadedWorkload::ThreadWorkload::ThreadWorkload(std::unique_ptr<Workload> 
 
         while (!_terminate.load(std::memory_order_relaxed)) {
             _workload->unitOfWork();
-            if (++localStats.iterations < 10) {
+            if (++localStats.iterations < 100) {
                 continue;
             }
 
@@ -61,8 +86,8 @@ MultithreadedWorkload::ThreadWorkload::ThreadWorkload(std::unique_ptr<Workload> 
             start = now;
             std::lock_guard<std::mutex> guard(_mutex);
             // Calculate decaying stats (like moving average).
-            _stats.duration = (_stats.duration + localStats.duration * 2) / 3;
-            _stats.iterations = (_stats.iterations + localStats.iterations * 2) / 3;
+            _stats.appendDecaying(localStats);
+            localStats = Stats();  // Reset for new cycle.
         }
     });
 }
