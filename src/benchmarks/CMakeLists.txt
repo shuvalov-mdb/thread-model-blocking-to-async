@@ -2,6 +2,9 @@
 add_executable(
     blocking_to_async_bm
     blocking_to_async_bm.cpp
+    blocking_to_async_suite.cpp
+    continuous_workload.cpp
+    workload.cpp
 )
 
 target_link_libraries(

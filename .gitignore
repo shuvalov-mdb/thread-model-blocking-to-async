@@ -36,3 +36,4 @@ CTestTestfile.cmake
 cmake_install.cmake
 build/
 Makefile
+compile_commands.json
