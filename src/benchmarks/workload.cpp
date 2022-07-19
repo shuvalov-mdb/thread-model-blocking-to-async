@@ -41,7 +41,7 @@ MultithreadedWorkload::MultithreadedWorkload(
     : _createCallback(createCallback) {
 }
 
-void MultithreadedWorkload::scaleTo(int newThreadCount) {
+void MultithreadedWorkload::scaleNonBlockingWorkloadTo(int newThreadCount) {
     assert(newThreadCount >= 0);
 
     while (newThreadCount < _workloads.size()) {

@@ -10,14 +10,20 @@
 namespace blocking_to_async {
 namespace testing {
 
-static std::unique_ptr<Calibration> calibration;
-
 static std::unique_ptr<MultithreadedWorkload> mtWorkload;
 
 static Config config;
 
 namespace {
 
+template <class ...Args>
+void BM_mixedWorkload(benchmark::State& state, Args&&... args) {
+  auto args_tuple = std::make_tuple(std::move(args)...);
+  for (auto _ : state) {
+    std::cout << std::get<0>(args_tuple) << ": " << std::get<1>(args_tuple)
+              << std::endl;
+  }
+}
 
 }  // namespace
 }  // namespace testing
@@ -30,17 +36,21 @@ using blocking_to_async::testing::MultithreadedWorkload;
 
 int main(int argc, char** argv)
 {
-    blocking_to_async::testing::calibration = std::make_unique<Calibration>();
-    blocking_to_async::testing::mtWorkload = std::make_unique<MultithreadedWorkload>(
-        [] { 
-            auto workload = std::make_unique<ContinuousWorkload>();
-            workload->init(blocking_to_async::testing::config);
-            return workload;
-        }
-    );
-    blocking_to_async::testing::calibration->calibrate(
-        blocking_to_async::testing::config, 
-        blocking_to_async::testing::mtWorkload.get());
+    {
+        auto calibration = std::make_unique<Calibration>();
+        blocking_to_async::testing::mtWorkload = std::make_unique<MultithreadedWorkload>(
+            [] { 
+                auto workload = std::make_unique<ContinuousWorkload>();
+                workload->init(blocking_to_async::testing::config);
+                return workload;
+            }
+        );
+        blocking_to_async::testing::config.optimalConcurrency =
+            calibration->calibrate(
+                blocking_to_async::testing::config, 
+                blocking_to_async::testing::mtWorkload.get());
+    }
+
     ::benchmark::Initialize(&argc, argv);
     ::benchmark::RunSpecifiedBenchmarks();
 }

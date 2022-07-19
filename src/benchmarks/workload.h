@@ -17,6 +17,11 @@
 namespace blocking_to_async {
 namespace testing {
 
+struct OptimalConcurrency {
+    int threadCount = 0;
+    double qps = 0.0;
+};
+
 struct Config {
     // Cache size for 8275CL per core.
     static constexpr size_t kExpectedL1CacheSize = 1024 * 32;
@@ -24,11 +29,9 @@ struct Config {
 
     size_t dataSizePerThread = kExpectedL2CacheSize * 2;
     size_t memoryWorkSizePerIteration = kExpectedL1CacheSize;
-};
 
-struct OptimalConcurrency {
-    int threadCount = 0;
-    double qps = 0.0;
+    // This is filled up by calibration results.
+    OptimalConcurrency optimalConcurrency;
 };
 
 struct Stats {
@@ -64,11 +67,13 @@ public:
         return _workloads.size();
     }
 
-    void scaleTo(int newThreadCount);
+    void scaleNonBlockingWorkloadTo(int newThreadCount);
 
     Stats getStats() const;
 
 private:
+    // Simple continuous thread workload. The passed in `Workload` is not thread aware and
+    // only does `unitOfWork()`.
     class ThreadWorkload {
     public:
         explicit ThreadWorkload(std::unique_ptr<Workload> workload);
@@ -83,13 +88,19 @@ private:
 
         void terminate();
 
-    private:
+    protected:
         std::unique_ptr<std::thread> _thread;
         std::unique_ptr<Workload> _workload;
         std::atomic<bool> _terminate;
 
         mutable std::mutex _mutex;
         Stats _stats;
+    };
+
+    // This variant is capable to block a thread before units of work.
+    class ThreadPartiallyBlockedWorkload : public ThreadWorkload {
+    public:
+        ThreadPartiallyBlockedWorkload(std::unique_ptr<Workload> workload);
     };
 
     const std::function<std::unique_ptr<Workload>()> _createCallback;

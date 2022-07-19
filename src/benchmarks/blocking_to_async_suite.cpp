@@ -10,9 +10,9 @@ namespace testing {
 OptimalConcurrency Calibration::calibrate(
     const Config& config,
     MultithreadedWorkload *mtWorkload) {
-    mtWorkload->scaleTo(0);
+    mtWorkload->scaleNonBlockingWorkloadTo(0);
     std::cerr << "Start calibration" << std::endl;
-    mtWorkload->scaleTo(1);
+    mtWorkload->scaleNonBlockingWorkloadTo(1);
 
     double previousCycleQPS = 0;
     int iterationsWithoutChange = 0;
@@ -39,7 +39,7 @@ OptimalConcurrency Calibration::calibrate(
         if (qpsAfter > previousCycleQPS * 1.001) {
             std::cerr << "Incrementing thread count to " << (mtWorkload->threadCount() + 1)
                 << " with current QPS " << qpsAfter << std::endl;
-            mtWorkload->scaleTo(mtWorkload->threadCount() + 1);
+            mtWorkload->scaleNonBlockingWorkloadTo(mtWorkload->threadCount() + 1);
             previousCycleQPS = qpsAfter;
             iterationsWithoutChange = 0;
             continue;
@@ -48,6 +48,9 @@ OptimalConcurrency Calibration::calibrate(
         std::cerr << "Done calibrating with thread count " << (mtWorkload->threadCount() - 1)
             << " and QPS " << previousCycleQPS << " after new cycle QPS stagnated at "
             << previousCycleQPS << std::endl;
+
+        // Stop all the jobs.
+        mtWorkload->scaleNonBlockingWorkloadTo(0);
 
         // Result is the previous iteration.
         return { mtWorkload->threadCount() - 1, previousCycleQPS };
