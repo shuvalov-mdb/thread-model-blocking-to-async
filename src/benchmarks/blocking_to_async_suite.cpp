@@ -25,8 +25,8 @@ OptimalConcurrency Calibration::calibrate(
             continue;
         }
 
-        auto qpsBefore = statsBefore.iterations * 1000.0 * 1000 / statsBefore.duration.count();
-        auto qpsAfter = statsAfter.iterations * 1000.0 * 1000 / statsAfter.duration.count();
+        auto qpsBefore = statsBefore.qps();
+        auto qpsAfter = statsAfter.qps();
         auto ratio = (qpsBefore - qpsAfter) / qpsAfter;
         if (std::abs(ratio) > 0.05) {
             iterationsWithoutChange = 0;

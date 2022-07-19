@@ -38,15 +38,19 @@ struct Stats {
     std::chrono::microseconds duration{ 0 };
     uint64_t iterations = 0;
 
+    double qps() const;
+
     // Increase iterations for the same interval.
     void appendConcurrent(const Stats& other);
 
-    void appendDecaying(const Stats& other);
+    void append(const Stats& other);
+
+    Stats diff(const Stats& other) const;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Stats& s) {
     os << "duration: " << s.duration.count() << " us iterations: " << s.iterations;
-    if (s.iterations > 0) { os << " QPS: " << (s.iterations * 1000. * 1000 / s.duration.count()); }
+    if (s.iterations > 0) { os << " QPS: " << s.qps(); }
     return os;
 }
 
@@ -69,6 +73,11 @@ public:
 
     void scaleNonBlockingWorkloadTo(int newThreadCount);
 
+    void resetBlockingWorkflowTo(int threadCount, double ratioOfTimeToBlock, int iterationsBeforeSleep);
+
+    // Reset at the beginning of an experiment.
+    void resetStats();
+
     Stats getStats() const;
 
 private:
@@ -79,7 +88,18 @@ private:
         explicit ThreadWorkload(std::unique_ptr<Workload> workload);
         ThreadWorkload(ThreadWorkload& other) = delete;
 
-        ~ThreadWorkload();
+        virtual ~ThreadWorkload();
+
+        virtual bool isBlocking() const {
+            return false;
+        }
+
+        virtual void start();
+
+        void resetStats() {
+            std::lock_guard<std::mutex> guard(_mutex);
+            _stats = Stats();
+        }
 
         Stats getStats() const {
             std::lock_guard<std::mutex> guard(_mutex);
@@ -100,8 +120,24 @@ private:
     // This variant is capable to block a thread before units of work.
     class ThreadPartiallyBlockedWorkload : public ThreadWorkload {
     public:
-        ThreadPartiallyBlockedWorkload(std::unique_ptr<Workload> workload);
+        ThreadPartiallyBlockedWorkload(std::unique_ptr<Workload> workload, 
+                                       double ratioOfTimeToBlock,
+                                       int iterationsBeforeSleep);
+        ~ThreadPartiallyBlockedWorkload() override = default;
+
+        bool isBlocking() const override {
+            return true;
+        }
+
+        void start() override;
+
+    private:
+        const double _ratioOfTimeToBlock;
+        const int _iterationsBeforeSleep;
     };
+
+    // Returns total count of type remaining after deletion.
+    int _removeExtraWorkloadsByType(int newThreadCount, bool isBlocking);
 
     const std::function<std::unique_ptr<Workload>()> _createCallback;
 
