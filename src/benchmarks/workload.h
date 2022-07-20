@@ -27,8 +27,8 @@ struct Config {
     static constexpr size_t kExpectedL1CacheSize = 1024 * 32;
     static constexpr size_t kExpectedL2CacheSize = 1024 * 1024;
 
-    size_t dataSizePerThread = kExpectedL2CacheSize * 2;
-    size_t memoryWorkSizePerIteration = kExpectedL1CacheSize;
+    size_t sharedDataSize = kExpectedL2CacheSize * 1000 * 3;
+    size_t memoryWorkSizePerIteration = kExpectedL1CacheSize / 4;
 
     // This is filled up by calibration results.
     OptimalConcurrency optimalConcurrency;
@@ -37,8 +37,12 @@ struct Config {
 struct Stats {
     std::chrono::microseconds duration{ 0 };
     uint64_t iterations = 0;
+    int threadMigrations = 0;
+    int minflt = 0;
+    int majflt = 0;
 
     double qps() const;
+    double migrationsQps() const;
 
     // Increase iterations for the same interval.
     void appendConcurrent(const Stats& other);
@@ -46,11 +50,16 @@ struct Stats {
     void append(const Stats& other);
 
     Stats diff(const Stats& other) const;
+
+    static std::tuple<int, int> getPageFaults();
 };
 
 inline std::ostream& operator<<(std::ostream& os, const Stats& s) {
     os << "duration: " << s.duration.count() << " us iterations: " << s.iterations;
     if (s.iterations > 0) { os << " QPS: " << s.qps(); }
+    if (s.threadMigrations > 0) { os << " Migrations: " << s.migrationsQps() << " /s"; }
+    if (s.minflt > 0) { os << " minflt: " << s.minflt; }
+    if (s.majflt > 0) { os << " minflt: " << s.majflt; }
     return os;
 }
 
@@ -60,7 +69,9 @@ public:
 
     virtual void init(const Config& config) = 0;
 
-    virtual void unitOfWork() = 0;
+    // Returns the count of Core ID switches (thread migrations) for this thread while
+    // doing the unit of work.
+    virtual int unitOfWork() = 0;
 };
 
 class MultithreadedWorkload {
@@ -107,6 +118,9 @@ private:
         }
 
         void terminate();
+
+        // Get current CPU core ID.
+        static unsigned getCoreId();
 
     protected:
         std::unique_ptr<std::thread> _thread;

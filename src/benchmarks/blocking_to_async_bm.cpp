@@ -18,7 +18,7 @@ namespace {
 
 void percentBlockingCustomArguments(benchmark::internal::Benchmark* b) {
     std::vector<int> threadCount{ 
-        8, 10, 12, 16, 20, 24, 30, 36, 44
+        8, 16, 32, 44, 64, 80, 100, 200
     };
     // In percentages.
     std::vector<int> ratioOfTimeToBlock{50, 80};
@@ -27,32 +27,36 @@ void percentBlockingCustomArguments(benchmark::internal::Benchmark* b) {
     for (int ratio : ratioOfTimeToBlock) {
         for (int iterations : iterationsBeforeSleep) {
             for (int threads : threadCount) {
-std::cerr<<"threads "<<threads<<std::endl;
                 b->Args({ratio, iterations, threads});
             }
         }
     }
+    b->Iterations(1000);
 }
 
 void BM_percentBlocking(benchmark::State& state) {
     ContinuousWorkload mainThreadWorkload;
     mainThreadWorkload.init(config);
 
-    // Concurrent workload will have 1/2 of all threads running unblocked.
-    mtWorkload->scaleNonBlockingWorkloadTo(config.optimalConcurrency.threadCount / 4);
+    // Remove unblocked threads.
+    mtWorkload->scaleNonBlockingWorkloadTo(0);
 
+    assert(state.range(0) >= 0 && state.range(0) <= 99);
     mtWorkload->resetBlockingWorkflowTo(
         state.range(2),
         (state.range(0) / 100.),  // Percentage into ratio.
         state.range(1));
     mtWorkload->resetStats();
 
+    auto statsBefore = mtWorkload->getStats();
+    std::cerr<<"before "<<statsBefore<<std::endl;
     for (auto _ : state) {
         mainThreadWorkload.unitOfWork();
     }
-    auto statsAfter = mtWorkload->getStats();
+    auto statsAfter = mtWorkload->getStats().diff(statsBefore);
     std::cerr<<"after "<<statsAfter<<std::endl;
     state.counters["qps"] = statsAfter.qps();
+    state.counters["Migrations"] = statsAfter.migrationsQps();
 }
 
 BENCHMARK(BM_percentBlocking)->Apply(percentBlockingCustomArguments);

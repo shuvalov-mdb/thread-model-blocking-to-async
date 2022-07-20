@@ -7,13 +7,23 @@
 #include "benchmarks/workload.h"
 
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <random>
+#include <sstream>
+#include <string.h>
+#include <x86intrin.h>
+#include <unistd.h>
 
 namespace blocking_to_async {
 namespace testing {
 
 double Stats::qps() const {
     return iterations * 1000.0 * 1000 / duration.count();
+}
+
+double Stats::migrationsQps() const {
+    return threadMigrations * 1000.0 * 1000 / duration.count();
 }
 
 // Increase iterations for the same interval.
@@ -27,18 +37,40 @@ void Stats::appendConcurrent(const Stats& other) {
     }
 
     iterations += other.iterations * duration / other.duration;
+    threadMigrations += other.threadMigrations;
 }
 
 void Stats::append(const Stats& other) {
     duration += other.duration;
     iterations += other.iterations;
+    threadMigrations += other.threadMigrations;
 }
 
 Stats Stats::diff(const Stats& other) const {
     Stats result;
     result.duration = duration - other.duration;
     result.iterations = iterations - other.iterations;
+    result.threadMigrations = threadMigrations - other.threadMigrations;
+    result.minflt = minflt - other.minflt;
+    result.majflt = majflt - other.majflt;
     return result;
+}
+
+std::tuple<int, int> Stats::getPageFaults() {
+    pid_t id = getpid();
+    std::string path = "/proc/" + std::to_string(id) + "/stat";
+    std::ifstream infile(path);
+    assert(infile.is_open());
+    std::string line;
+    std::getline(infile, line);
+    std::istringstream iss(line);
+
+    long int pid, ppid, pgrp, session, tty_nr, tpgid, flags, minflt, cminflt, majflt;
+    std::string comm, state;
+    iss >> pid >> comm >> state >> ppid >> pgrp >> session >> tty_nr >> tpgid >> flags
+        >> minflt >> cminflt >> majflt;
+    assert(pid == id);
+    return { minflt, majflt };
 }
 
 MultithreadedWorkload::MultithreadedWorkload(
@@ -110,6 +142,7 @@ Stats MultithreadedWorkload::getStats() const {
         auto stats = w->getStats();
         result.appendConcurrent(stats);
     }
+    std::tie(result.minflt, result.majflt) = Stats::getPageFaults();
     return result;
 }
 
@@ -154,6 +187,12 @@ void MultithreadedWorkload::ThreadWorkload::terminate() {
     }
 }
 
+unsigned MultithreadedWorkload::ThreadWorkload::getCoreId() {
+    unsigned id;
+    __rdtscp(&id);
+    return id;
+}
+
 
 MultithreadedWorkload::ThreadPartiallyBlockedWorkload::ThreadPartiallyBlockedWorkload(
     std::unique_ptr<Workload> workload, double ratioOfTimeToBlock, int iterationsBeforeSleep)
@@ -167,20 +206,23 @@ void MultithreadedWorkload::ThreadPartiallyBlockedWorkload::start() {
     _thread = std::make_unique<std::thread>([this] {
         Stats localStats;
         auto iterationStart = std::chrono::high_resolution_clock::now();
+        int threadMigrations = 0;
 
         while (!_terminate.load(std::memory_order_relaxed)) {
-            _workload->unitOfWork();
+            threadMigrations += _workload->unitOfWork();
             if (++localStats.iterations < _iterationsBeforeSleep) {
                 continue;
             }
 
+            auto previousCoreId = getCoreId();
             auto now = std::chrono::high_resolution_clock::now();
             auto duration =
                 std::chrono::duration_cast<std::chrono::microseconds>(now - iterationStart);
 
             // Sleep.
             static thread_local std::mt19937 gen;
-            auto timeToSleep = (now - iterationStart) * _ratioOfTimeToBlock;
+            auto timeActive = now - iterationStart;
+            auto timeToSleep = 1 / (1 - _ratioOfTimeToBlock) * timeActive - timeActive;
             std::uniform_int_distribution<std::mt19937::result_type> distrib(
                 0, std::chrono::duration_cast<std::chrono::microseconds>(timeToSleep / 40).count());
             std::this_thread::sleep_for(timeToSleep + std::chrono::microseconds(distrib(gen)));
@@ -191,6 +233,11 @@ void MultithreadedWorkload::ThreadPartiallyBlockedWorkload::start() {
             localStats.duration = std::chrono::duration_cast<std::chrono::microseconds>(
                 now - iterationStart);
             _stats.append(localStats);
+            _stats.threadMigrations = threadMigrations;
+            if (previousCoreId != getCoreId()) {
+                ++_stats.threadMigrations;
+            }
+            threadMigrations = 0;
             localStats = Stats();  // Reset for new cycle.
             iterationStart = now;
         }

@@ -13,11 +13,13 @@ public:
 
     void init(const Config& config) override;
 
-    void unitOfWork() override;
+    int unitOfWork() override;
 private:
     // Const after init.
     Config _config;
-    std::deque<uint64_t> _data;
+
+    static std::mutex _mutex;
+    static std::deque<uint64_t>* _data;
 };
 
 }  // namespace testing
