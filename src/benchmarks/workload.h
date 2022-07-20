@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <condition_variable>
 #include <cstddef>
 #include <functional>
 #include <iostream>
@@ -123,12 +124,20 @@ private:
         static unsigned getCoreId();
 
     protected:
+        // Sleep that supports being interrupted.
+        void _sleep(std::chrono::microseconds sleepFor);
+
         std::unique_ptr<std::thread> _thread;
         std::unique_ptr<Workload> _workload;
         std::atomic<bool> _terminate;
 
         mutable std::mutex _mutex;
         Stats _stats;
+
+        std::vector<std::unique_ptr<std::condition_variable>> _perCoreSleepCv;
+        int _currentSleepDeprivedCore = 0;
+        std::chrono::time_point<std::chrono::high_resolution_clock> _lastSleepChange =
+            std::chrono::high_resolution_clock::now();
     };
 
     // This variant is capable to block a thread before units of work.

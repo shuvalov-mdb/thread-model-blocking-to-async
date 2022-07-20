@@ -21,7 +21,7 @@ void percentBlockingCustomArguments(benchmark::internal::Benchmark* b) {
         8, 16, 32, 44, 64, 80, 100, 200
     };
     // In percentages.
-    std::vector<int> ratioOfTimeToBlock{50, 80};
+    std::vector<int> ratioOfTimeToBlock{50, 80, 95};
     std::vector<int> iterationsBeforeSleep{ 1 };
 
     for (int ratio : ratioOfTimeToBlock) {

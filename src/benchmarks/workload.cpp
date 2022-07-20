@@ -193,6 +193,28 @@ unsigned MultithreadedWorkload::ThreadWorkload::getCoreId() {
     return id;
 }
 
+void MultithreadedWorkload::ThreadWorkload::_sleep(std::chrono::microseconds sleepFor) {
+    const auto startCoreId = getCoreId();
+    std::unique_lock<std::mutex> guard(_mutex);
+    while (startCoreId + 1 > _perCoreSleepCv.size()) {
+        _perCoreSleepCv.emplace_back(new std::condition_variable);
+    }
+
+    if (std::chrono::high_resolution_clock::now() > _lastSleepChange + std::chrono::milliseconds(10)) {
+        static thread_local std::mt19937 gen;
+        std::uniform_int_distribution<std::mt19937::result_type> distrib(
+            0, _perCoreSleepCv.size() - 1);
+        _currentSleepDeprivedCore = distrib(gen);
+        _lastSleepChange = std::chrono::high_resolution_clock::now();
+        // Wake up all threads sleeping on this core runqueue.
+        _perCoreSleepCv[_currentSleepDeprivedCore]->notify_all();
+    }
+
+    _perCoreSleepCv[startCoreId]->wait_for(guard, sleepFor, [this, startCoreId] {
+        return startCoreId == _currentSleepDeprivedCore;
+    });
+}
+
 
 MultithreadedWorkload::ThreadPartiallyBlockedWorkload::ThreadPartiallyBlockedWorkload(
     std::unique_ptr<Workload> workload, double ratioOfTimeToBlock, int iterationsBeforeSleep)
@@ -225,7 +247,8 @@ void MultithreadedWorkload::ThreadPartiallyBlockedWorkload::start() {
             auto timeToSleep = 1 / (1 - _ratioOfTimeToBlock) * timeActive - timeActive;
             std::uniform_int_distribution<std::mt19937::result_type> distrib(
                 0, std::chrono::duration_cast<std::chrono::microseconds>(timeToSleep / 40).count());
-            std::this_thread::sleep_for(timeToSleep + std::chrono::microseconds(distrib(gen)));
+            _sleep(std::chrono::duration_cast<std::chrono::microseconds>(timeToSleep) + 
+                   std::chrono::microseconds(distrib(gen)));
 
             // Adjust stats
             now = std::chrono::high_resolution_clock::now();
