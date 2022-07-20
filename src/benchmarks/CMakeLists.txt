@@ -4,6 +4,7 @@ add_executable(
     blocking_to_async_bm.cpp
     blocking_to_async_suite.cpp
     continuous_workload.cpp
+    thread_pool.cpp
     workload.cpp
 )
 

@@ -63,10 +63,11 @@ int ContinuousWorkload::unitOfWork() {
 
             {
                 // Artificial lock contention to increase the rate of context switches.
-                static std::mutex mutex;
-                static int counter;
-                std::lock_guard<std::mutex> guard(mutex);
-                ++counter;
+                static std::array<std::mutex, 10> mutexes;
+                static std::array<int, 10> counters;
+                auto idx = counters[previousCoreId % 10] % 10;
+                std::lock_guard<std::mutex> guard(mutexes[idx]);
+                ++counters[idx];
             }
 
             auto currentCoreId = getCoreId();
