@@ -78,10 +78,11 @@ MultithreadedWorkload::MultithreadedWorkload(
     : _createCallback(createCallback) {
 }
 
-int MultithreadedWorkload::_removeExtraWorkloadsByType(int newThreadCount, bool isBlocking) {
+int MultithreadedWorkload::_removeExtraWorkloadsByType(
+    int newThreadCount, ThreadWorkload::WorkloadType workloadType) {
     int countFound = 0;
     for (auto it = _workloads.begin(); it != _workloads.end();) {
-        if ((*it)->isBlocking() == isBlocking) { 
+        if ((*it)->workloadType() == workloadType) { 
             ++countFound; 
         } else {
             ++it;
@@ -101,7 +102,7 @@ int MultithreadedWorkload::_removeExtraWorkloadsByType(int newThreadCount, bool 
 void MultithreadedWorkload::scaleNonBlockingWorkloadTo(int newThreadCount) {
     assert(newThreadCount >= 0);
 
-    int remaining = _removeExtraWorkloadsByType(newThreadCount, false);
+    int remaining = _removeExtraWorkloadsByType(newThreadCount, ThreadWorkload::WorkloadType::kNonBlocking);
 
     for (int toAdd = newThreadCount - remaining; toAdd > 0; --toAdd) {
         auto workload = _createCallback();
@@ -116,7 +117,7 @@ void MultithreadedWorkload::resetBlockingWorkflowTo(int threadCount, double rati
     assert(threadCount >= 0);
 
     // Clean up all blocking workloads.
-    _removeExtraWorkloadsByType(0, true);
+    _removeExtraWorkloadsByType(0, ThreadWorkload::WorkloadType::kBlocking);
     std::cerr << "All blocking workloads removed, " << _workloads.size() << " non blocking remain" << std::endl;
 
     for (int i = 0; i < threadCount; ++i) {
@@ -128,6 +129,20 @@ void MultithreadedWorkload::resetBlockingWorkflowTo(int threadCount, double rati
         _workloads.push_back(std::move(threadWorkload));
     }
     std::cerr << _workloads.size() << " total workload size" << std::endl;
+}
+
+void MultithreadedWorkload::startPooledWorkload(
+    int threadCount, double ratioOfTimeToBlock, int iterationsBeforeSleep) {
+    auto workload = _createCallback();
+    assert(workload);
+    auto threadWorkload = std::make_unique<ThreadPoolWorkload>(
+        std::move(workload), ratioOfTimeToBlock, iterationsBeforeSleep, threadCount);
+    threadWorkload->start();
+    _workloads.push_back(std::move(threadWorkload));
+}
+
+void MultithreadedWorkload::stopPooledWorkload() {
+    _removeExtraWorkloadsByType(0, ThreadWorkload::WorkloadType::kBlockingPooled);
 }
 
 void MultithreadedWorkload::resetStats() {
@@ -265,6 +280,79 @@ void MultithreadedWorkload::ThreadPartiallyBlockedWorkload::start() {
             iterationStart = now;
         }
     });
+}
+
+MultithreadedWorkload::ThreadPoolWorkload::ThreadPoolWorkload(
+    std::unique_ptr<Workload> workload, double ratioOfTimeToBlock, 
+    int iterationsBeforeSleep, int threadCount)
+    : ThreadWorkload(std::move(workload)),
+      _ratioOfTimeToBlock(ratioOfTimeToBlock),
+      _iterationsBeforeSleep(iterationsBeforeSleep),
+      _threadCount(threadCount) {
+        assert(_iterationsBeforeSleep >= 1);
+        assert(threadCount >= 1);
+}
+
+MultithreadedWorkload::ThreadPoolWorkload::~ThreadPoolWorkload() {
+    _unblockedWorkloadThreadPool.stop();
+    _blockingCallsThreadPool.stop();
+}
+
+void MultithreadedWorkload::ThreadPoolWorkload::start() {
+    // Unlike workloads below the pooled workload has only one instance.
+    _unblockedWorkloadThreadPool.start(_threadCount, [this] {
+        _unblockedWorkloadThreadPool.queueJob(unblockedWorkloadThreadPoolJob());
+    });
+    _blockingCallsThreadPool.start(std::min(_threadCount * 100, 1000), nullptr);
+}
+
+std::function<void()> MultithreadedWorkload::ThreadPoolWorkload::unblockedWorkloadThreadPoolJob() {
+    return [this] {
+        Stats localStats;
+        auto iterationStart = std::chrono::high_resolution_clock::now();
+        int threadMigrations = 0;
+
+        if (_terminate.load(std::memory_order_relaxed)) {
+            _unblockedWorkloadThreadPool.stop();
+            return;
+        }
+
+        while (true) {
+            threadMigrations += _workload->unitOfWork();
+            if (++localStats.iterations >= _iterationsBeforeSleep) {
+                break;
+            }
+        }
+
+        auto now = std::chrono::high_resolution_clock::now();
+        auto duration =
+            std::chrono::duration_cast<std::chrono::microseconds>(now - iterationStart);
+
+        // Calculate sleep time.
+        static thread_local std::mt19937 gen;
+        auto timeActive = now - iterationStart;
+        auto timeToSleep = 1 / (1 - _ratioOfTimeToBlock) * timeActive - timeActive;
+        std::uniform_int_distribution<std::mt19937::result_type> distrib(
+            0, std::chrono::duration_cast<std::chrono::microseconds>(timeToSleep / 40).count());
+        timeToSleep += std::chrono::microseconds(distrib(gen));
+
+        _blockingCallsThreadPool.queueJob(
+            [this, timeToSleep, localStats, threadMigrations] {
+            _sleep(std::chrono::duration_cast<std::chrono::microseconds>(timeToSleep));
+
+            // Stats calculations are done back in the unblocked thread and include the
+            // time of sleep.
+            _unblockedWorkloadThreadPool.queueJob(
+                [this, localStats, threadMigrations] () mutable {
+                // Adjust stats
+                auto now = std::chrono::high_resolution_clock::now();
+                std::lock_guard<std::mutex> guard(_mutex);
+                _stats.duration = std::chrono::duration_cast<std::chrono::microseconds>(now - _measurementsStart);
+                _stats.iterations += localStats.iterations;
+                _stats.threadMigrations += threadMigrations;
+            });
+        });
+    };
 }
 
 }  // namespace testing

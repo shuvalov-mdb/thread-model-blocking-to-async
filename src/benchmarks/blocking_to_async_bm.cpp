@@ -38,8 +38,9 @@ void BM_percentBlocking(benchmark::State& state) {
     ContinuousWorkload mainThreadWorkload;
     mainThreadWorkload.init(config);
 
-    // Remove unblocked threads.
+    // Remove unblocked threads and pooled workload.
     mtWorkload->scaleNonBlockingWorkloadTo(0);
+    mtWorkload->stopPooledWorkload();
 
     assert(state.range(0) >= 0 && state.range(0) <= 99);
     mtWorkload->resetBlockingWorkflowTo(
@@ -59,7 +60,36 @@ void BM_percentBlocking(benchmark::State& state) {
     state.counters["Migrations"] = statsAfter.migrationsQps();
 }
 
-BENCHMARK(BM_percentBlocking)->Apply(percentBlockingCustomArguments);
+//BENCHMARK(BM_percentBlocking)->Apply(percentBlockingCustomArguments);
+
+void BM_pooledBlocks(benchmark::State& state) {
+    ContinuousWorkload mainThreadWorkload;
+    mainThreadWorkload.init(config);
+
+    // Remove unblocked threads and pooled workload.
+    mtWorkload->scaleNonBlockingWorkloadTo(0);
+    mtWorkload->stopPooledWorkload();
+    mtWorkload->resetBlockingWorkflowTo(0, 0, 0);
+
+    assert(state.range(0) >= 0 && state.range(0) <= 99);
+    mtWorkload->startPooledWorkload(
+        state.range(2), 
+        (state.range(0) / 100.),  // Percentage into ratio.
+        state.range(1));
+    mtWorkload->resetStats();
+
+    auto statsBefore = mtWorkload->getStats();
+    std::cerr<<"before "<<statsBefore<<std::endl;
+    for (auto _ : state) {
+        mainThreadWorkload.unitOfWork();
+    }
+    auto statsAfter = mtWorkload->getStats().diff(statsBefore);
+    std::cerr<<"after "<<statsAfter<<std::endl;
+    state.counters["qps"] = statsAfter.qps();
+    state.counters["Migrations"] = statsAfter.migrationsQps();
+}
+
+BENCHMARK(BM_pooledBlocks)->Apply(percentBlockingCustomArguments);
 
 }  // namespace
 }  // namespace testing

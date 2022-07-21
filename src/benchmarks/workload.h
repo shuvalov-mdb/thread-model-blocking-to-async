@@ -15,6 +15,8 @@
 #include <ostream>
 #include <thread>
 
+#include "benchmarks/thread_pool.h"
+
 namespace blocking_to_async {
 namespace testing {
 
@@ -87,6 +89,10 @@ public:
 
     void resetBlockingWorkflowTo(int threadCount, double ratioOfTimeToBlock, int iterationsBeforeSleep);
 
+    void startPooledWorkload(int threadCount, double ratioOfTimeToBlock, int iterationsBeforeSleep);
+
+    void stopPooledWorkload();
+
     // Reset at the beginning of an experiment.
     void resetStats();
 
@@ -97,18 +103,20 @@ private:
     // only does `unitOfWork()`.
     class ThreadWorkload {
     public:
+        enum class WorkloadType { kNonBlocking, kBlocking, kBlockingPooled };
+
         explicit ThreadWorkload(std::unique_ptr<Workload> workload);
         ThreadWorkload(ThreadWorkload& other) = delete;
 
         virtual ~ThreadWorkload();
 
-        virtual bool isBlocking() const {
-            return false;
+        virtual WorkloadType workloadType() const {
+            return WorkloadType::kNonBlocking;
         }
 
         virtual void start();
 
-        void resetStats() {
+        virtual void resetStats() {
             std::lock_guard<std::mutex> guard(_mutex);
             _stats = Stats();
         }
@@ -148,8 +156,8 @@ private:
                                        int iterationsBeforeSleep);
         ~ThreadPartiallyBlockedWorkload() override = default;
 
-        bool isBlocking() const override {
-            return true;
+        WorkloadType workloadType() const override {
+            return ThreadWorkload::WorkloadType::kBlocking;
         }
 
         void start() override;
@@ -159,8 +167,43 @@ private:
         const int _iterationsBeforeSleep;
     };
 
+    // This variant performs identical amount of work as one above but using thread pools -
+    // one for non-blocking workloads and another for blocked parts.
+    class ThreadPoolWorkload : public ThreadWorkload {
+    public:
+        ThreadPoolWorkload(std::unique_ptr<Workload> workload, 
+                           double ratioOfTimeToBlock,
+                           int iterationsBeforeSleep,
+                           int threadCount);
+        ~ThreadPoolWorkload() override;
+
+        WorkloadType workloadType() const override {
+            return ThreadWorkload::WorkloadType::kBlockingPooled;
+        }
+
+        void start() override;
+
+        void resetStats() override {
+            std::lock_guard<std::mutex> guard(_mutex);
+            _stats = Stats();
+            _measurementsStart = std::chrono::high_resolution_clock::now();
+        }
+
+    private:
+        std::function<void()> unblockedWorkloadThreadPoolJob();
+
+        std::chrono::time_point<std::chrono::high_resolution_clock> _measurementsStart =
+            std::chrono::high_resolution_clock::now();
+        const double _ratioOfTimeToBlock;
+        const int _iterationsBeforeSleep;
+        const int _threadCount;
+
+        ThreadPool _unblockedWorkloadThreadPool;
+        ThreadPool _blockingCallsThreadPool;
+    };
+
     // Returns total count of type remaining after deletion.
-    int _removeExtraWorkloadsByType(int newThreadCount, bool isBlocking);
+    int _removeExtraWorkloadsByType(int newThreadCount, ThreadWorkload::WorkloadType workloadType);
 
     const std::function<std::unique_ptr<Workload>()> _createCallback;
 

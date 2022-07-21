@@ -9,14 +9,17 @@ namespace testing {
 
 class ThreadPool {
 public:
-    void start(int concurrency);
+    void start(
+        int concurrency,
+        std::function<void()> callbackWhenHasCapacity);
     void queueJob(const std::function<void()>& job);
     void stop();
-    bool busy() const;
+    int queueSize() const;
 
 private:
-    void _threadLoop();
+    void _threadLoop(int threadId);
 
+    std::function<void()> _callbackWhenHasCapacity;
     bool _shouldTerminate = false;           // Tells threads to stop looking for jobs
     mutable std::mutex _queueMutex;
     std::condition_variable _mutexCondition; // Allows threads to wait on new jobs or termination 
