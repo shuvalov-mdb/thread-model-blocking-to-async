@@ -22,6 +22,7 @@ void ThreadPool::queueJob(const std::function<void()>& job) {
     {
         std::unique_lock<std::mutex> lock(_queueMutex);
         shouldNotify = _jobs.size() > 1 || _currentlyRunning.load() < std::max(8, _capacity / 4);
+        //shouldNotify = true;
         _jobs.push(job);
         if (_jobs.size() > 20 || (_jobs.size() > 5 && _currentlyRunning < _capacity / 2)) {
             // std::cerr << "Warning " << _jobs.size() << " jobs in queue, running " << _currentlyRunning << std::endl;

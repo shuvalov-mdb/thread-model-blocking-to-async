@@ -18,10 +18,10 @@ namespace {
 
 void percentBlockingCustomArguments(benchmark::internal::Benchmark* b) {
     std::vector<int> threadCount{ 
-        8, 16, 32, 44, 64, 80, 100, 200
+        8, 12, 16, 20, 32, 44, 64, 80, 100, 120
     };
     // In percentages.
-    std::vector<int> ratioOfTimeToBlock{50, 80, 95};
+    std::vector<int> ratioOfTimeToBlock{80};
     std::vector<int> iterationsBeforeSleep{ 1 };
 
     for (int ratio : ratioOfTimeToBlock) {
@@ -31,7 +31,7 @@ void percentBlockingCustomArguments(benchmark::internal::Benchmark* b) {
             }
         }
     }
-    b->Iterations(1000);
+    b->Iterations(2000);
 }
 
 void BM_percentBlocking(benchmark::State& state) {
@@ -61,14 +61,14 @@ void BM_percentBlocking(benchmark::State& state) {
     state.counters["Migrations"] = statsAfter.migrationsQps();
 }
 
-// BENCHMARK(BM_percentBlocking)->Apply(percentBlockingCustomArguments);
+BENCHMARK(BM_percentBlocking)->Apply(percentBlockingCustomArguments);
 
 void pooledCustomArguments(benchmark::internal::Benchmark* b) {
     std::vector<int> threadCount{ 
-        1, 4, 8, 12, 13, 14, 15, 16, 20, 32, 40
+        1, 4, 8, 12, 13, 14, 15, 16, 20, 32
     };
     // In percentages.
-    std::vector<int> ratioOfTimeToBlock{50, 80, 95};
+    std::vector<int> ratioOfTimeToBlock{80};
     std::vector<int> iterationsBeforeSleep{ 1 };
 
     for (int ratio : ratioOfTimeToBlock) {
@@ -130,11 +130,10 @@ int main(int argc, char** argv)
                 return workload;
             }
         );
-        // blocking_to_async::testing::config.optimalConcurrency =
-        //     calibration->calibrate(
-        //         blocking_to_async::testing::config, 
-        //         blocking_to_async::testing::mtWorkload.get());
-        blocking_to_async::testing::config.optimalConcurrency = { 16, 2300 };//tmp
+        blocking_to_async::testing::config.optimalConcurrency =
+            calibration->calibrate(
+                blocking_to_async::testing::config, 
+                blocking_to_async::testing::mtWorkload.get());
     }
 
     ::benchmark::Initialize(&argc, argv);
