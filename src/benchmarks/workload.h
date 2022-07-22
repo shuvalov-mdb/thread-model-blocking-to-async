@@ -30,7 +30,7 @@ struct Config {
     static constexpr size_t kExpectedL1CacheSize = 1024 * 32;
     static constexpr size_t kExpectedL2CacheSize = 1024 * 1024;
 
-    size_t sharedDataSize = kExpectedL2CacheSize * 1000 * 3;
+    size_t sharedDataSize = kExpectedL2CacheSize * 1000 * 2.5;
     size_t memoryWorkSizePerIteration = kExpectedL1CacheSize / 4;
 
     // This is filled up by calibration results.
@@ -46,6 +46,7 @@ struct Stats {
 
     double qps() const;
     double migrationsQps() const;
+    double minfltQps() const;
 
     // Increase iterations for the same interval.
     void appendConcurrent(const Stats& other);
@@ -98,6 +99,8 @@ public:
 
     Stats getStats() const;
 
+    std::string status() const;
+
 private:
     // Simple continuous thread workload. The passed in `Workload` is not thread aware and
     // only does `unitOfWork()`.
@@ -127,6 +130,8 @@ private:
         }
 
         void terminate();
+
+        virtual std::string status() const { return ""; }
 
         // Get current CPU core ID.
         static unsigned getCoreId();
@@ -188,6 +193,8 @@ private:
             _stats = Stats();
             _measurementsStart = std::chrono::high_resolution_clock::now();
         }
+
+        std::string status() const override;
 
     private:
         std::function<void()> unblockedWorkloadThreadPoolJob();

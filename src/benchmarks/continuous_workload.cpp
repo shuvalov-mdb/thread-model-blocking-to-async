@@ -31,14 +31,14 @@ void ContinuousWorkload::init(const Config& config) {
     _data->resize(_config.sharedDataSize / 1000);
     while (_data->size() < _config.sharedDataSize) {
         // Keep the data fragmented.
-        _data->resize((_data->size() + 2) * 1.1);
+        _data->resize((_data->size() + 2) * 1.01);
     }
 }
 
 int ContinuousWorkload::unitOfWork() {
     assert(!_data->empty());
     static constexpr int kMemoryIterations = 20;
-    static constexpr int kMemoryJump = 1024 * 32;
+    static constexpr int kMemoryJump = 10;
     int threadMigrations = 0;
     auto previousCoreId = getCoreId();
     static thread_local std::mt19937 gen;
@@ -63,9 +63,10 @@ int ContinuousWorkload::unitOfWork() {
 
             {
                 // Artificial lock contention to increase the rate of context switches.
-                static std::array<std::mutex, 10> mutexes;
-                static std::array<int, 10> counters;
-                auto idx = counters[previousCoreId % 10] % 10;
+                static constexpr int kShards = 40;
+                static std::array<std::mutex, kShards> mutexes;
+                static std::array<int, kShards> counters;
+                auto idx = counters[previousCoreId % kShards] % kShards;
                 std::lock_guard<std::mutex> guard(mutexes[idx]);
                 ++counters[idx];
             }

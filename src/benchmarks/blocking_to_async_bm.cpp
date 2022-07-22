@@ -57,10 +57,29 @@ void BM_percentBlocking(benchmark::State& state) {
     auto statsAfter = mtWorkload->getStats().diff(statsBefore);
     std::cerr<<"after "<<statsAfter<<std::endl;
     state.counters["qps"] = statsAfter.qps();
+    state.counters["minflt"] = statsAfter.minfltQps();
     state.counters["Migrations"] = statsAfter.migrationsQps();
 }
 
-//BENCHMARK(BM_percentBlocking)->Apply(percentBlockingCustomArguments);
+// BENCHMARK(BM_percentBlocking)->Apply(percentBlockingCustomArguments);
+
+void pooledCustomArguments(benchmark::internal::Benchmark* b) {
+    std::vector<int> threadCount{ 
+        1, 4, 8, 12, 13, 14, 15, 16, 20, 32, 40
+    };
+    // In percentages.
+    std::vector<int> ratioOfTimeToBlock{50, 80, 95};
+    std::vector<int> iterationsBeforeSleep{ 1 };
+
+    for (int ratio : ratioOfTimeToBlock) {
+        for (int iterations : iterationsBeforeSleep) {
+            for (int threads : threadCount) {
+                b->Args({ratio, iterations, threads});
+            }
+        }
+    }
+    b->Iterations(2000);
+}
 
 void BM_pooledBlocks(benchmark::State& state) {
     ContinuousWorkload mainThreadWorkload;
@@ -84,12 +103,13 @@ void BM_pooledBlocks(benchmark::State& state) {
         mainThreadWorkload.unitOfWork();
     }
     auto statsAfter = mtWorkload->getStats().diff(statsBefore);
-    std::cerr<<"after "<<statsAfter<<std::endl;
+    std::cerr<<"after "<<statsAfter<<" "<<mtWorkload->status()<<std::endl;
     state.counters["qps"] = statsAfter.qps();
+    state.counters["minflt"] = statsAfter.minfltQps();
     state.counters["Migrations"] = statsAfter.migrationsQps();
 }
 
-BENCHMARK(BM_pooledBlocks)->Apply(percentBlockingCustomArguments);
+BENCHMARK(BM_pooledBlocks)->Apply(pooledCustomArguments);
 
 }  // namespace
 }  // namespace testing
