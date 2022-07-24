@@ -190,7 +190,7 @@ void MultithreadedWorkload::ThreadWorkload::start() {
         auto start = std::chrono::high_resolution_clock::now();
 
         while (!_terminate.load(std::memory_order_relaxed)) {
-            _workload->unitOfWork();
+            localStats.threadMigrations += _workload->unitOfWork();
             if (++localStats.iterations < 100) {
                 continue;
             }

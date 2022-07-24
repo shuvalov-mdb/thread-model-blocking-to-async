@@ -16,29 +16,26 @@ OptimalConcurrency Calibration::calibrate(
 
     double previousCycleQPS = 0;
     int iterationsWithoutChange = 0;
+    double qpsBefore = 0.0;
     while (true) {
-        auto statsBefore = mtWorkload->getStats();
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        mtWorkload->resetStats();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         auto statsAfter = mtWorkload->getStats();
 
-        if (statsBefore.iterations == 0) {
-            continue;
-        }
-
-        auto qpsBefore = statsBefore.qps();
         auto qpsAfter = statsAfter.qps();
-        auto ratio = (qpsBefore - qpsAfter) / qpsAfter;
+        auto ratio = (qpsAfter - qpsBefore) / qpsAfter;
         if (std::abs(ratio) > 0.05) {
             iterationsWithoutChange = 0;
+            qpsBefore = qpsAfter;
             continue;
         }
-        if (++iterationsWithoutChange < 10) {
+        if (++iterationsWithoutChange < 3) {
             continue;
         }
 
-        if (qpsAfter > previousCycleQPS * 1.001) {
-            std::cerr << "Incrementing thread count to " << (mtWorkload->threadCount() + 1)
-                << " with current QPS " << qpsAfter << std::endl;
+        if (qpsAfter > previousCycleQPS * 1.001 || mtWorkload->threadCount() <= 20) {
+            std::cerr << "Incrementing thread count from " << mtWorkload->threadCount()
+                << " with current " << statsAfter << std::endl;
             mtWorkload->scaleNonBlockingWorkloadTo(mtWorkload->threadCount() + 1);
             previousCycleQPS = qpsAfter;
             iterationsWithoutChange = 0;
